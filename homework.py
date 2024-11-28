@@ -46,17 +46,16 @@ def check_tokens():
     missing_tokens = [
         name
         for name in REQUIRED_TOKENS
-        if (globals()[name] is None)
-        or (globals()[name] == '')
+        if not globals()[name]
     ]
 
-    if len(missing_tokens) != 0:
-        logging.critical(
-            f'Отсутствует обязательные переменные окружения: {missing_tokens}'
+    if missing_tokens:
+        message = (
+            'Отсутствует обязательные ременные окружения: '
+            + (', '.join(missing_tokens))
         )
-        raise ValueError(
-            f'Отсутствует обязательные переменные окружения: {missing_tokens}'
-        )
+        logging.critical(message)
+        raise ValueError(message)
 
     logging.info('Все необходимые переменные окружения присутствуют.')
 
@@ -74,7 +73,10 @@ def send_message(bot, message):
 
 def get_api_answer(timestamp):
     """Запрос к API Практикума."""
-    logging.info(f'Отправка запроса к API: {ENDPOINT}')
+    logging.info(
+        f'Отправка запроса к API: {ENDPOINT}, '
+        f'headers: {HEADERS}, params="from_date": {timestamp}'
+    )
     try:
         response = requests.get(
             ENDPOINT,
@@ -85,7 +87,12 @@ def get_api_answer(timestamp):
         raise APIStatusError(f'Сбой запроса к API: {error}')
 
     if response.status_code != HTTPStatus.OK:
-        raise APIStatusError
+        raise APIStatusError(
+            'Ошибка запроса.'
+            f'Статус-код: {response.status_code}. '
+            f'Адрес запроса: {response.url}'
+            f'Параметры ответа: {response.request}'
+        )
 
     logging.info('Запрос выполнен успешно.')
 
@@ -98,15 +105,15 @@ def check_response(response):
 
     if not isinstance(response, dict):
         raise TypeError(
-            f'Полученный тип данных({type(response)}) '
-            'не соотвествует ожидаемому'
+            f'Полученный тип данных ({type(response)}) '
+            'не соотвествует ожидаемому (dict)'
         )
     if 'homeworks' not in response:
         raise KeyError('Ключ "homeworks" отсутствует в ответе API.')
     if not isinstance(response['homeworks'], list):
         raise TypeError(
-            'Полученный тип данных(' + str(type(response['homeworks'])) + ') '
-            'не соотвествует ожидаемому'
+            f'Полученный тип данных ({type(response["homeworks"])})'
+            'не соотвествует ожидаемому (list)'
         )
     logging.info('API соответствует документации.')
 
@@ -123,20 +130,22 @@ def parse_status(homework):
     ]
 
     # Проверяем наличие отсутствующих ключей
-    if len(missing_keys) != 0:
+    if missing_keys:
         raise KeyError(
             f'Ответ API домашки не содержит необходимые ключи {missing_keys}'
         )
 
+    homework_name = homework['homework_name']
+    homework_status = homework['status']
+
     # Проверяем, что статус является одним из ожидаемых значений
-    if homework['status'] not in HOMEWORK_VERDICTS.keys():
+    if homework_status not in HOMEWORK_VERDICTS.keys():
         raise ValueError(
             'Недокументированный статус '
-            'домашней работы: ' + str(homework['status'])
+            f'домашней работы: {homework_status}'
         )
 
-    homework_name = homework['homework_name']
-    verdict = HOMEWORK_VERDICTS[homework['status']]
+    verdict = HOMEWORK_VERDICTS[homework_status]
 
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -154,26 +163,39 @@ def main():
             response = get_api_answer(timestamp)
             check_response(response)
             homework = response['homeworks']
-            if homework:
-                new_message = parse_status(homework[0])
-                if new_message != old_message:
-                    send_message(bot, new_message)
-                    old_message = new_message
-            else:
+            if not homework:
                 logging.debug('Изменений статуса нет')
                 continue
-        except telebot.apihelper.ApiException as error:
-            logging.exception(f'Сбой в работе программы: {error}')
-        except requests.exceptions.RequestException as error:
-            logging.exception(f'Сбой в работе программы: {error}')
+
+            new_message = parse_status(homework[0])
+            if new_message != old_message:
+                send_message(bot, new_message)
+                old_message = new_message
+            else:
+                logging.info(
+                    f'Новое сообщение: {new_message} '
+                    f'идентично прошлому: {old_message}'
+                )
+
+        except (
+            telebot.apihelper.ApiException,
+            requests.exceptions.RequestException
+        ) as error:
+            logging.exception(
+                f'Сбой при отправке сообщения в Telegram: {error}'
+            )
+
         except Exception as error:
             logging.exception(f'Сбой в работе программы: {error}')
 
             new_message = f'Сбой в работе программы: {error}'
             if new_message != old_message:
-                with suppress(Exception):
+                with suppress(
+                    telebot.apihelper.ApiException,
+                    requests.exceptions.RequestException
+                ):
                     send_message(bot, new_message)
-                old_message = new_message
+                    old_message = new_message
 
         finally:
             time.sleep(RETRY_PERIOD)
