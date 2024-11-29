@@ -1,3 +1,3 @@
 
 class APIStatusError(Exception):
-    pass
+    """Исключения при ошибках запросов к API Яндекс Домашка."""

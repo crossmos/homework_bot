@@ -2,11 +2,11 @@ import logging
 import os
 import time
 import telebot
+import sys
 from contextlib import suppress
 from http import HTTPStatus
 
 import requests
-import sys
 from dotenv import load_dotenv
 from telebot import TeleBot
 
@@ -52,7 +52,7 @@ def check_tokens():
     if missing_tokens:
         message = (
             'Отсутствует обязательные ременные окружения: '
-            + (', '.join(missing_tokens))
+            f'{", ".join(missing_tokens)}'
         )
         logging.critical(message)
         raise ValueError(message)
@@ -90,8 +90,7 @@ def get_api_answer(timestamp):
         raise APIStatusError(
             'Ошибка запроса.'
             f'Статус-код: {response.status_code}. '
-            f'Адрес запроса: {response.url}'
-            f'Параметры ответа: {response.request}'
+            f'headers: {HEADERS}, params="from_date": {timestamp}'
         )
 
     logging.info('Запрос выполнен успешно.')
@@ -173,8 +172,7 @@ def main():
                 old_message = new_message
             else:
                 logging.info(
-                    f'Новое сообщение: {new_message} '
-                    f'идентично прошлому: {old_message}'
+                    f'Новое сообщение идентично прошлому "{new_message}"'
                 )
 
         except (
